@@ -2,3 +2,5 @@ node_modules/
 prune.zip
 *.png.tmp
 .DS_Store
+prune-600*.csv
+prune-600*.txt
