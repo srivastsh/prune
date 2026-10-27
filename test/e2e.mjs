@@ -29,7 +29,8 @@ function gqlUser(u) {
   return { __typename: 'User', rest_id: u.id, core: { screen_name: u.handle, name: `User ${u.id}` },
     // Oct 2026 shape: no legacy; counts in relationship_counts / tweet_counts.
     relationship_counts: { followers: 100 + Number(u.id), following: 5 }, tweet_counts: { tweets: u.never ? 0 : 10 },
-    relationship_perspectives: { followed_by: Number(u.id) % 7 === 0 } };
+    relationship_perspectives: { followed_by: Number(u.id) % 7 === 0 },
+    ...(Number(u.id) % 11 === 0 ? { professional: { professional_type: 'Business', category: [{ name: 'Automotive' }] } } : {}) };
 }
 
 async function main() {
@@ -151,7 +152,7 @@ async function main() {
   expect(recs.length === L, `all ${L} accounts loaded (got ${recs.length})`);
   const noStatus = users.filter((u) => u.noStatus && !u.never && !u.gone).length;
   if (FAST) {
-    expect(counters.friendsList === 2 && counters.following === 0, `fast path: 2 friends/list pages, no GraphQL list (${counters.friendsList}/${counters.following})`);
+    expect(counters.friendsList === 2 && counters.following >= 3, `fast path: 2 friends/list pages, then GraphQL only for labels (${counters.friendsList}/${counters.following})`);
     expect(counters.lookup === 1, `lookup only for the ${noStatus} accounts missing a status (calls=${counters.lookup})`);
     expect(counters.userTweets === noStatus, `per-user calls only for the ${noStatus} with no status anywhere (got ${counters.userTweets})`);
   } else {
@@ -231,6 +232,14 @@ async function main() {
   expect(persisted === before + 2, `queue persisted to storage (${persisted})`);
   // tier-3 ordering sanity: the last active card should be a small personal account, not a mega brand
   const ranks = await dash.evaluate(() => 0);
+  // Brand filter: deck shows only accounts X labels as businesses.
+  await dash.selectOption('#swipeType', 'brand');
+  await dash.waitForTimeout(200);
+  const brandOpt = await dash.$eval('#swipeType option[value=brand]', (o) => o.textContent);
+  const brandReason = await dash.textContent('.card:not([class*=under]) .card-reason');
+  console.log('brand filter:', brandOpt, '|', brandReason);
+  const deckIds = await dash.$$eval('.card', (cs) => cs.map((c) => Number(c.dataset.id)));
+  expect(/Brands \((1[0-9]|[2-9][0-9])\)/.test(brandOpt) && deckIds.every((id) => id % 11 === 0), 'brand filter shows only business-labeled accounts');
   // mid-drag screenshot
   const box2 = await (await dash.$('.card:not([class*=under])')).boundingBox();
   await dash.mouse.move(box2.x + box2.width / 2, box2.y + 200); await dash.mouse.down();

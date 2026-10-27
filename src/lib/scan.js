@@ -31,7 +31,7 @@ export async function runScan(client, store, { onProgress, log, settings, rescan
   const merge = (users, source) => {
     for (const u of users) {
       const old = prev[u.id] || {};
-      const rec = { ...old, ...u, keep: old.keep || false, queued: old.queued || false, listedAt: now, followIdx: followIdx++ };
+      const rec = { ...old, ...u, verifiedType: u.verifiedType ?? old.verifiedType, proType: u.proType ?? old.proType, proCategory: u.proCategory ?? old.proCategory, keep: old.keep || false, queued: old.queued || false, listedAt: now, followIdx: followIdx++ };
       // v1 records carry fresh activity; GraphQL records don't, so keep old activity if still fresh.
       if (source !== 'v1' || u.lastPostAt === undefined) {
         if (old.lastPostAt !== undefined && u.lastPostAt === undefined) {
@@ -73,6 +73,29 @@ export async function runScan(client, store, { onProgress, log, settings, rescan
     } catch (e) {
       if (e instanceof Cancelled) throw e;
       throw new Error(`Couldn't load your following list: ${short(e)}`);
+    }
+  }
+
+  // v1 lacks X's business labels; one pass over GraphQL Following (100 per call) adds them.
+  if (listSource === 'v1' && !forceDom) {
+    try {
+      let seen = 0;
+      onProgress({ phase: 'enrich', done: 0, total: Object.keys(next).length });
+      for await (const users of client.followingGql()) {
+        for (const u of users) {
+          const r = next[u.id];
+          if (!r) continue;
+          r.verifiedType = u.verifiedType;
+          r.proType = u.proType;
+          r.proCategory = u.proCategory;
+          seen++;
+        }
+        onProgress({ phase: 'enrich', done: seen, total: Object.keys(next).length });
+      }
+      log(`Labeled account types for ${seen.toLocaleString()} accounts.`);
+    } catch (e) {
+      if (e instanceof Cancelled) throw e;
+      log(`Couldn't load account labels (${short(e)}). Brand detection will use bios only.`, 'info');
     }
   }
 

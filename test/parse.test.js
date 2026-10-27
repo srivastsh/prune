@@ -166,3 +166,25 @@ test('low-signal scoring prefers old, big, brand-ish accounts and protects peopl
   assert.equal(tierOf({ lastPostAt: NOW - 40 * DAY }, NOW), 2);
   assert.equal(reasonFor({ lastPostAt: NOW - 400 * DAY }, NOW), 'Silent 13 months');
 });
+
+import { kindOf as kindOf2, normalizeGqlUser as norm } from '../src/lib/parse.js';
+
+test('brands come from X business labels; news outlets with gold checks are news', () => {
+  const bmw = norm({ __typename: 'User', rest_id: '1', core: { screen_name: 'BMW', name: 'BMW' }, profile_bio: { description: 'The official #BMW account.' },
+    professional: { professional_type: 'Business', category: [{ name: 'Automotive' }] }, verification: { verified: false }, relationship_counts: { followers: 2.7e6 } });
+  const cnn = norm({ __typename: 'User', rest_id: '2', core: { screen_name: 'CNN', name: 'CNN' }, profile_bio: { description: "It's our job to #GoThere" },
+    verification: { verified_type: 'Business' }, relationship_counts: { followers: 6e7 } });
+  const nyt = { handle: 'nytimes', bio: 'We seek the truth', proType: 'Business', proCategory: 'Media & News', followers: 5e7 };
+  const creator = norm({ __typename: 'User', rest_id: '3', core: { screen_name: 'MKBHD', name: 'Marques Brownlee' }, profile_bio: { description: 'Web Video Producer' },
+    professional: { professional_type: 'Creator', category: [{ name: 'Community' }] } });
+  const takis = { handle: 'TakisUSA', bio: 'The official account of the most intense rolled tortilla chips', followers: 104000 };
+  const club = { handle: 'ucsbclub', bio: 'Official account of the UCSB chess club', followers: 300 };
+  assert.equal(bmw.proCategory, 'Automotive');
+  assert.equal(kindOf2(bmw), 'brand');
+  assert.equal(reasonFor({ ...bmw, lastPostAt: NOW - DAY }, NOW), 'Brand · Automotive, mega account');
+  assert.equal(kindOf2(cnn), 'news'); // gold check but a known outlet
+  assert.equal(kindOf2(nyt), 'news');
+  assert.equal(kindOf2(creator), null);
+  assert.equal(kindOf2(takis), 'brand');
+  assert.equal(kindOf2(club), null);
+});

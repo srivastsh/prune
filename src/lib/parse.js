@@ -64,6 +64,10 @@ export function normalizeGqlUser(r) {
     verified: Boolean(r.is_blue_verified || r.verification?.verified || L.verified),
     followsYou: Boolean(pick(rel.followed_by, L.followed_by)),
     createdAt: toMs(pick(C.created_at, L.created_at)),
+    // X's own account labels: gold check ("Business"/"Government") and Professional type + category.
+    verifiedType: pick(r.verification?.verified_type, L.verified_type) || null,
+    proType: r.professional?.professional_type || null,
+    proCategory: r.professional?.category?.[0]?.name || null,
   };
 }
 
@@ -255,16 +259,65 @@ const CATEGORY_RULES = [
   ['brand', 25, /(official (x|twitter)? ?(account|page|channel|home)|customer|support|shop now|our app|we're|we are|follow us|deals|store\b|brand\b|®|™)/i],
   ['news', 20, /(breaking|news\b|newspaper|magazine|journalism|headlines|the latest|coverage|reporting|current events)/i],
   ['meme', 20, /(meme|shitpost|funny|parody|cringe|dm for promo|submissions|viral|no ?context|poorly aged|hourly)/i],
-  ['media', 15, /(hip.?hop|charts|pop culture|music news|culture news|entertainment|celebrity news)/i],
-  ['sports', 15, /(\bnba\b|\bnfl\b|\bmlb\b|\bnhl\b|soccer|football|\bfc\b|\bufc\b|\bmma\b|\bf1\b|espn|athlete|olympi)/i],
+  ['media', 15, /(hip.?hop|charts|pop culture|music news|culture news|entertainment|celebrity news|music\b|culture\b|daily show|podcast)/i],
+  ['sports', 15, /(\bnba\b|\bnfl\b|\bmlb\b|\bnhl\b|soccer|football|\bfc\b|\bufc\b|\bmma\b|\bf1\b|formula 1|espn|athlete|olympi|#dubnation|real madrid|cuenta oficial)/i],
 ];
 const USEFUL = /(\bai\b|\bml\b|llm|engineer|founder|ceo|startup|product|\bpm\b|security|infosec|research|developer|design|investor|\bvc\b|writer|author|professor|scientist|building|builder)/i;
+const WEIGHT = Object.fromEntries(CATEGORY_RULES.map(([k, w]) => [k, w]));
+const RULE = Object.fromEntries(CATEGORY_RULES.map(([k, , re]) => [k, re]));
 
-/** What kind of account this is, by bio. Returns { key, weight } or null. */
+// X Professional categories that mean "a company or product" vs "a person who set their profile to Business".
+const BRAND_CAT = /(automotive|electronic|software|technology company|science & technology|shopping|retail|fashion|restaurant|food|beverage|deals|financial|video game|cloud|mobile application|travel|transportation|telecom|apparel|consumer|beauty|cosmetic|grocery|hotel|airline|bank|insurance|product|brand|company|store|commerce|gaming)/i;
+const NOT_BRAND_CAT = /(entrepreneur|author|musician|musical artist|artist|creator|producer|medical|health|community|entertainment|education|consult|nonprofit|non-governmental|podcast|public figure|merchandis|public & social|emergency|museum|government|politic|sports|athlete|journalist|blogger|personal)/i;
+const NEWS_LIKE = /(news|media|publish|journalis|magazine|broadcast|newspaper|television|radio)/i;
+// Outlets whose bios don't say "news" (CNN: "It's our job to #GoThere").
+const OUTLET_NAME = /(\bnews\b|times\b|\bpost\b|journal|herald|tribune|gazette|\bdaily\b|^(cnn|cnnbrk|nytimes|bbc\w*|abc|cbs\w*|nbc\w*|fox\w*|reuters|ap|npr|pbs|wsj|time|wired|verge|engadget|gizmodo|mashable|techcrunch|cnet|axios|politico|bloomberg\w*|theeconomist|guardian\w*|telegraph|usatoday|businessinsider|forbes|vice|vox|huffpost|buzzfeed\w*)$)/i;
+const GOV = /(government|ministry|minister|embassy|consulate|ambassador|senator|congress|president|secretary|department of|police|sheriff|fire dept|weather service|city of|county of|state of|united nations|\bun\b|campaign|candidate|governor|mayor|parliament|white house|holy father|pope)/i;
+const ARTIST = /(album|mixtape|rapper|singer|songwriter|out now|tour\b|records\b|musician|producer|actor|actress|comedian)/i;
+const COMPANY_WORD = /\b(motors?|cars|group|labs?|inc|games|studios?|music|records|app|store|shop|official|bank|airlines?|media|technolog(y|ies)|systems|partners|capital|ventures|house|company|co|ai|hq|usa|global|international|america)\b/i;
+const looksLikePerson = (rec) => /^[A-Z][a-z]+(?:[ -][A-Z][a-z'.]+){1,2}$/.test((rec.name || '').trim()) && !COMPANY_WORD.test(rec.name);
+const isOutlet = (rec) => OUTLET_NAME.test(rec.handle || '') || OUTLET_NAME.test(rec.name || '');
+
+/**
+ * What kind of account this is: brand, news, media, meme, sports, or null (people and everything else).
+ * X's own labels win: a gold "Business" check, or a Professional "Business" profile in a company-type
+ * category, is a brand unless it's a news outlet. Otherwise falls back to bio keywords.
+ * Returns { key, weight } or null.
+ */
 export function categorize(rec) {
   const s = `${rec.name || ''} ${rec.bio || ''}`;
-  for (const [key, weight, re] of CATEGORY_RULES) if (re.test(s)) return { key, weight };
+  const cat = rec.proCategory || '';
+  const gold = rec.verifiedType === 'Business';
+  const business = gold || rec.proType === 'Business';
+  const hit = (key) => ({ key, weight: WEIGHT[key] });
+  if (business && (NEWS_LIKE.test(cat) || RULE.news.test(s) || isOutlet(rec))) return hit('news');
+  if (business && !(cat && NOT_BRAND_CAT.test(cat))) {
+    if (gold) {
+      for (const k of ['meme', 'media', 'sports']) if (RULE[k].test(s)) return hit(k);
+      if (!looksLikePerson(rec) && !ARTIST.test(s)) return hit('brand');
+    } else if (cat && BRAND_CAT.test(cat) && !looksLikePerson(rec)) {
+      return hit('brand');
+    }
+  }
+  if (rec.verifiedType === 'Government' || GOV.test(s)) return null;
+  if (isOutlet(rec) && (rec.followers ?? 0) >= 10000) return hit('news');
+  for (const [key] of CATEGORY_RULES) {
+    if (key === 'brand' && ((rec.followers ?? 0) < 10000 || looksLikePerson(rec) || ARTIST.test(s))) continue;
+    if (RULE[key].test(s)) return hit(key);
+  }
   return null;
+}
+
+export const KINDS = [
+  { key: 'brand', label: 'Brands' },
+  { key: 'news', label: 'News' },
+  { key: 'media', label: 'Pop culture' },
+  { key: 'meme', label: 'Memes' },
+  { key: 'sports', label: 'Sports' },
+];
+
+export function kindOf(rec) {
+  return categorize(rec)?.key || null;
 }
 
 /** 0–100, higher = less useful. Only meaningful for accounts active in the last 30 days. */
@@ -312,7 +365,7 @@ export function reasonFor(rec, now = Date.now()) {
   const cat = categorize(rec);
   const names = { brand: 'Brand account', news: 'News feed', meme: 'Meme account', media: 'Pop-culture feed', sports: 'Sports' };
   const bits = [];
-  if (cat) bits.push(names[cat.key]);
+  if (cat) bits.push(cat.key === 'brand' && rec.proCategory ? `Brand · ${rec.proCategory}` : names[cat.key]);
   if ((rec.followers || 0) >= 1e6) bits.push('mega account');
   return bits.length ? bits.join(', ') : 'Active';
 }

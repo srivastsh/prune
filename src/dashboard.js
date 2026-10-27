@@ -1,4 +1,4 @@
-import { BUCKETS, bucketOf, daysSince, relTime, toCSV, pruneRank, tierOf, reasonFor } from './lib/parse.js';
+import { BUCKETS, bucketOf, daysSince, relTime, toCSV, pruneRank, tierOf, reasonFor, kindOf, KINDS } from './lib/parse.js';
 import { XClient, Cancelled } from './lib/x.js';
 import { store, unfollowsInLastDay } from './lib/store.js';
 import { runScan } from './lib/scan.js';
@@ -19,6 +19,7 @@ const S = {
   view: 'swipe',         // 'swipe' | 'list'
   skipped: [],           // ids pushed to the back of the deck this session
   history: [],           // swipe decisions, for undo
+  type: '',              // '' = all kinds, else a KINDS key (brand, news, …)
 };
 
 // ---------- boot ----------
@@ -54,6 +55,16 @@ function bind() {
   };
   $('stopBtn').onclick = () => { if (S.client) S.client.cancelled = true; };
   $('search').oninput = () => { S.shown = PAGE; renderRows(); };
+  for (const id of ['typeFilter', 'swipeType']) {
+    $(id).onchange = (e) => {
+      S.type = e.target.value;
+      S.shown = PAGE;
+      $('typeFilter').value = $('swipeType').value = S.type;
+      renderRows();
+      if (S.view === 'swipe') renderDeck();
+      e.target.blur();
+    };
+  }
   for (const id of ['hideMutuals', 'hideKept', 'sort']) $(id).onchange = () => { S.shown = PAGE; renderRows(); };
   $('protectMutuals').onchange = async (e) => {
     S.settings = { ...S.settings, protectMutuals: e.target.checked };
@@ -141,9 +152,26 @@ function render() {
       ? `Last scanned ${new Date(S.meta.lastScan).toLocaleString([], { dateStyle: 'medium', timeStyle: 'short' })}. ${c.unknown ? `${c.unknown} not checked yet.` : ''}`
       : 'Scan in progress.';
   }
+  renderTypeOptions();
   renderBuckets();
   renderRows();
   if (swipe) renderDeck();
+}
+
+function renderTypeOptions() {
+  const counts = {};
+  for (const r of list()) {
+    if (r.keep || isProtected(r)) continue;
+    const k = kindOf(r);
+    if (k) counts[k] = (counts[k] || 0) + 1;
+  }
+  const html = `<option value="">All accounts</option>` +
+    KINDS.map((k) => `<option value="${k.key}">${k.label} (${(counts[k.key] || 0).toLocaleString()})</option>`).join('');
+  for (const id of ['typeFilter', 'swipeType']) {
+    const el = $(id);
+    el.innerHTML = html;
+    el.value = S.type;
+  }
 }
 
 function renderBuckets() {
@@ -179,6 +207,7 @@ function visible() {
   const now = Date.now();
   let rows = list().filter((r) => {
     if (S.onlySelected && !S.selected.has(r.id)) return false;
+    if (S.type && kindOf(r) !== S.type) return false;
     if (S.filter.size && !S.filter.has(bucketOf(r, now))) return false;
     if (hideMutuals && r.followsYou) return false;
     if (hideKept && r.keep) return false;
@@ -232,6 +261,7 @@ function renderRows() {
     const tags = [
       r.followsYou ? `<span class="tag${S.settings.protectMutuals ? ' shield' : ''}">${S.settings.protectMutuals ? 'Mutual · protected' : 'Follows you'}</span>` : '',
       r.protected ? '<span class="tag">Private</span>' : '',
+      kindOf(r) === 'brand' ? `<span class="tag">${r.proCategory ? 'Brand · ' + esc(r.proCategory) : 'Brand'}</span>` : '',
     ].join('');
     li.innerHTML = `
       <input type="checkbox" data-act="sel" ${S.selected.has(r.id) ? 'checked' : ''} ${locked ? 'disabled' : ''} aria-label="Select @${esc(r.handle)}" />
@@ -317,11 +347,11 @@ function deckList() {
   const total = list().length;
   const skipped = new Set(S.skipped);
   const main = list()
-    .filter((r) => !r.keep && !S.selected.has(r.id) && !isProtected(r) && !skipped.has(r.id))
+    .filter((r) => !r.keep && !S.selected.has(r.id) && !isProtected(r) && !skipped.has(r.id) && (!S.type || kindOf(r) === S.type))
     .map((r) => [r, pruneRank(r, { total, now })])
     .sort((a, b) => b[1] - a[1])
     .map(([r]) => r);
-  const later = S.skipped.map((id) => S.accounts[id]).filter((r) => r && !r.keep && !S.selected.has(r.id) && !isProtected(r));
+  const later = S.skipped.map((id) => S.accounts[id]).filter((r) => r && !r.keep && !S.selected.has(r.id) && !isProtected(r) && (!S.type || kindOf(r) === S.type));
   const out = main.concat(later);
   if (S.front) {
     const i = out.findIndex((r) => r.id === S.front);
@@ -352,7 +382,7 @@ function cardHTML(r, now) {
       <div><b>${fmtNum(r.followers) || '—'}</b><span>Followers</span></div>
       <div><b>${fmtNum(r.statuses) || '—'}</b><span>Posts</span></div>
     </div>
-    <div class="card-reason"><i class="dot" style="background:var(--b-${b})"></i>${esc(reasonFor(r, now))}</div>
+    <div class="card-reason"><i class="dot" style="background:var(--b-${b})"></i>${esc(reasonFor(r, now))}${kindOf(r) === 'brand' && !/Brand/.test(reasonFor(r, now)) ? `<span class="tag">${r.proCategory ? 'Brand · ' + esc(r.proCategory) : 'Brand'}</span>` : ''}</div>
     ${r.bio ? `<p class="card-bio">${esc(r.bio)}</p>` : ''}
     ${post}
     <div class="card-foot">
@@ -380,7 +410,7 @@ function renderDeck() {
   el.replaceChildren();
   if (!top) {
     const n = S.selected.size;
-    el.innerHTML = `<div class="deck-empty"><div><b>You've been through everyone.</b>${n ? `${n.toLocaleString()} queued to unfollow.<br><br><button class="primary danger-fill" id="deckGo">Unfollow ${n.toLocaleString()}</button>` : 'Nothing queued.'}</div></div>`;
+    el.innerHTML = `<div class="deck-empty"><div><b>${S.type ? `No ${KINDS.find((k) => k.key === S.type).label.toLowerCase()} left.` : "You've been through everyone."}</b>${n ? `${n.toLocaleString()} queued to unfollow.<br><br><button class="primary danger-fill" id="deckGo">Unfollow ${n.toLocaleString()}</button>` : 'Nothing queued.'}</div></div>`;
     const go = document.getElementById('deckGo');
     if (go) go.onclick = () => confirmUnfollow();
     return;
@@ -572,7 +602,7 @@ async function startScan() {
       settings: S.settings,
       log,
       onProgress: async ({ phase, done, total }) => {
-        showProgress(phase === 'list' ? 'Loading who you follow…' : 'Checking latest posts…', done, phase === 'list' ? total : total);
+        showProgress(phase === 'list' ? 'Loading who you follow…' : phase === 'enrich' ? 'Labeling brands and news accounts…' : 'Checking latest posts…', done, phase === 'list' ? total : total);
         if (Date.now() - lastRender > 1500) {
           lastRender = Date.now();
           S.accounts = await store.accounts();

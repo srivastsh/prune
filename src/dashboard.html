@@ -55,7 +55,10 @@
 
     <section class="swipe" id="swipe" hidden>
       <div class="swipe-top">
-        <span id="swipeTier" class="tier-chip"></span>
+        <span class="swipe-left">
+          <span id="swipeTier" class="tier-chip"></span>
+          <select id="swipeType" class="compact" aria-label="Deck filter"></select>
+        </span>
         <span class="swipe-right">
           <span class="muted" id="swipeCount"></span>
           <button class="ghost small" id="swipeReview" hidden>Review</button>
@@ -87,6 +90,7 @@
       <label class="check" title="Accounts that follow you back can't be selected or unfollowed"><input type="checkbox" id="protectMutuals" /> Protect mutuals</label>
       <label class="check"><input type="checkbox" id="hideMutuals" /> Hide mutuals</label>
       <label class="check"><input type="checkbox" id="hideKept" checked /> Hide kept</label>
+      <select id="typeFilter" aria-label="Account type"></select>
       <select id="sort">
         <option value="oldest">Longest quiet first</option>
         <option value="newest">Most recent first</option>

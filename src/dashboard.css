@@ -263,3 +263,6 @@ body.swiping .hero h1 { font-size: 22px; margin-bottom: 4px; }
 body.swiping .hero .sub { font-size: 13px; }
 body.swiping { padding-bottom: 32px; }
 .deck { height: clamp(420px, calc(100vh - 330px), 560px); }
+
+.swipe-left { display: flex; align-items: center; gap: 10px; }
+select.compact { padding: 4px 8px; font-size: 12px; }
