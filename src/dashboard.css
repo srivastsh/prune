@@ -124,6 +124,8 @@ select { padding: 8px 10px; border-radius: var(--r-sm); border: 1px solid var(--
 /* table */
 .table-wrap { border: 1px solid var(--line); border-radius: var(--r); overflow: hidden; }
 .table-head { display: flex; justify-content: space-between; padding: 10px 16px; background: var(--panel); border-bottom: 1px solid var(--line); }
+.table-head-right { display: flex; align-items: center; gap: 12px; }
+#pasteText { width: 100%; padding: 10px 12px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--bg); font: 13px/1.5 ui-monospace, 'SF Mono', Menlo, monospace; resize: vertical; margin-bottom: 8px; }
 .rows { list-style: none; margin: 0; padding: 0; }
 .row {
   display: grid; grid-template-columns: 22px 40px minmax(0, 1fr) 150px 90px 34px;

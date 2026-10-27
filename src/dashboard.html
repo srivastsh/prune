@@ -66,7 +66,10 @@
     <section class="table-wrap" id="tableWrap" hidden>
       <div class="table-head">
         <label class="check"><input type="checkbox" id="selectAll" /> <span id="selectAllLabel">Select all shown</span></label>
-        <span class="muted" id="shownCount"></span>
+        <span class="table-head-right">
+          <button class="ghost small" id="pasteBtn" type="button">Select from list</button>
+          <span class="muted" id="shownCount"></span>
+        </span>
       </div>
       <ol class="rows" id="rows"></ol>
       <button class="ghost more" id="moreBtn" hidden>Show more</button>
@@ -104,6 +107,19 @@
       <div class="dlg-actions">
         <button value="cancel" class="ghost">Cancel</button>
         <button value="ok" class="primary danger-fill" id="confirmOk">Start unfollowing</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="pasteDlg">
+    <form method="dialog">
+      <h2>Select from a list</h2>
+      <p>Paste handles, profile links or a CSV. Anything that matches someone you follow gets selected. Kept accounts and protected mutuals are skipped.</p>
+      <textarea id="pasteText" rows="8" placeholder="@handle1 @handle2, https://x.com/handle3 …"></textarea>
+      <p class="muted" id="pasteResult"></p>
+      <div class="dlg-actions">
+        <button value="cancel" class="ghost">Close</button>
+        <button value="ok" class="primary" id="pasteOk">Select</button>
       </div>
     </form>
   </dialog>

@@ -189,6 +189,15 @@ async function main() {
   expect(mutualsHit === 0, `no mutuals unfollowed with Protect mutuals on (${mutualsHit})`);
   const deadMutuals = recs.filter((r) => r.followsYou && r.lastPostAt && now - r.lastPostAt > 90 * DAY && !r.never).length;
   expect(deadMutuals > 0 && /protected/.test(await dash.textContent('#selectAllLabel')), `select-all skips ${deadMutuals} protected mutuals`);
+  // Select from a pasted list: handles, links, CSV; mutual user7 must be skipped (GraphQL mode marks it).
+  await dash.click('#clearSel').catch(() => {});
+  await dash.click('#pasteBtn');
+  await dash.fill('#pasteText', 'tier,handle\n1,@user151\nhttps://x.com/user152\n"user153",x\nuser1 nobody_here');
+  await dash.click('#pasteOk');
+  const res = await dash.textContent('#pasteResult');
+  console.log('paste:', res);
+  expect(/Selected 3/.test(res) && /skipped 1/.test(res), 'paste list selects 3 and skips the mutual');
+  await dash.click('#pasteDlg button[value=cancel]');
   await dash.screenshot({ path: process.env.SHOT || 'e2e.png', fullPage: false });
 
   await ctx.close();

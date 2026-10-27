@@ -61,6 +61,8 @@ function bind() {
     else list.forEach((r) => S.selected.delete(r.id));
     renderRows();
   };
+  $('pasteBtn').onclick = () => { $('pasteResult').textContent = ''; $('pasteDlg').showModal(); };
+  $('pasteOk').onclick = (e) => { e.preventDefault(); selectFromText($('pasteText').value); };
   $('moreBtn').onclick = () => { S.shown += PAGE; renderRows(); };
   $('clearSel').onclick = () => { S.selected.clear(); renderRows(); };
   $('keepSel').onclick = async () => {
@@ -285,6 +287,26 @@ async function onRowClick(e) {
     li.classList.toggle('sel', cb.checked);
     renderActionbar();
   }
+}
+
+/** Select accounts named in pasted text: @handles, x.com links, or a CSV with a handle column. */
+function selectFromText(text) {
+  const byHandle = new Map(list().map((r) => [r.handle.toLowerCase(), r]));
+  const wanted = new Set();
+  for (const m of text.matchAll(/(?:(?:x|twitter)\.com\/|@|^|[\s,;"'\t])([A-Za-z0-9_]{1,15})(?=$|[\s,;"'\t/?])/gm)) wanted.add(m[1].toLowerCase());
+  let picked = 0, guarded = 0;
+  for (const h of wanted) {
+    const r = byHandle.get(h);
+    if (!r) continue;
+    if (isProtected(r)) { guarded++; continue; }
+    if (!S.selected.has(r.id)) { S.selected.add(r.id); picked++; }
+  }
+  const matched = picked + guarded;
+  $('pasteResult').textContent = matched
+    ? `Selected ${picked.toLocaleString()}${guarded ? `, skipped ${guarded} kept or mutual` : ''}. ${S.selected.size.toLocaleString()} selected in total.`
+    : 'No accounts you follow matched.';
+  if (picked) { S.filter.clear(); S.shown = PAGE; renderBuckets(); renderRows(); }
+  if (picked) log(`Selected ${picked} accounts from a pasted list.`);
 }
 
 // ---------- progress + log ----------
