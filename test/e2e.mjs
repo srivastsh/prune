@@ -67,7 +67,7 @@ async function main() {
         const cur = url.searchParams.get('cursor');
         const start = cur === '-1' ? 0 : Number(cur);
         const page = listed.slice(start, start + 200).map((u) => {
-          const o = { id_str: u.id, screen_name: u.handle, name: u.handle, statuses_count: u.never ? 0 : 10, followers_count: 5, followed_by: false };
+          const o = { id_str: u.id, screen_name: u.handle, name: u.handle, statuses_count: u.never ? 0 : 10, followers_count: 5, followed_by: Number(u.id) % 7 === 0 };
           if (!u.never && !u.noStatus) o.status = { created_at: tdate(u.quiet), id_str: String(5000 + Number(u.id)) };
           return o;
         });
@@ -185,6 +185,10 @@ async function main() {
   expect(after === L - 30, `unfollowed accounts removed from store (${after})`);
   const quietest = unfollowed.map((id) => users.find((u) => u.id === id).quiet);
   expect(Math.min(...quietest) >= 91, 'only 90d+ accounts unfollowed');
+  const mutualsHit = unfollowed.filter((id) => Number(id) % 7 === 0).length;
+  expect(mutualsHit === 0, `no mutuals unfollowed with Protect mutuals on (${mutualsHit})`);
+  const deadMutuals = recs.filter((r) => r.followsYou && r.lastPostAt && now - r.lastPostAt > 90 * DAY && !r.never).length;
+  expect(deadMutuals > 0 && /protected/.test(await dash.textContent('#selectAllLabel')), `select-all skips ${deadMutuals} protected mutuals`);
   await dash.screenshot({ path: process.env.SHOT || 'e2e.png', fullPage: false });
 
   await ctx.close();

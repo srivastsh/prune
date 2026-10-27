@@ -132,6 +132,9 @@ select { padding: 8px 10px; border-radius: var(--r-sm); border: 1px solid var(--
 .row:last-child { border-bottom: 0; }
 .row:hover { background: var(--panel); }
 .row.sel { background: color-mix(in srgb, var(--danger) 6%, var(--bg)); }
+.row.locked input { opacity: .3; cursor: not-allowed; }
+.row.locked { cursor: default; }
+.tag.shield { color: var(--ok); border-color: color-mix(in srgb, var(--ok) 35%, var(--line)); }
 .row input { accent-color: var(--text); width: 15px; height: 15px; margin: 0; }
 .avatar { width: 40px; height: 40px; border-radius: 50%; background: var(--line); object-fit: cover; }
 .who { min-width: 0; }

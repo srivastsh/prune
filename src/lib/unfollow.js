@@ -15,6 +15,11 @@ export async function runUnfollow(client, store, queue, { settings, onProgress, 
 
   for (const rec of queue) {
     client.checkpoint();
+    // Belt and braces: the dashboard already filters these out.
+    if (rec.keep || (settings.protectMutuals && rec.followsYou)) {
+      log(`Skipped @${rec.handle} (${rec.keep ? 'kept' : 'follows you back'}).`);
+      continue;
+    }
     await client.waitWhilePaused();
 
     const history = await store.log();

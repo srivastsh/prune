@@ -2,6 +2,7 @@
 
 export const DEFAULT_SETTINGS = {
   countReposts: true,      // a repost counts as activity
+  protectMutuals: true,    // never unfollow accounts that follow you back
   dailyCap: 350,           // max unfollows per rolling 24h
   minDelaySec: 6,          // random delay between unfollows
   maxDelaySec: 14,

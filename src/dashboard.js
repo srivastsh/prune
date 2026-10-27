@@ -27,6 +27,7 @@ async function init() {
   S.accounts = await store.accounts();
   S.meta = await store.meta();
   bind();
+  $('protectMutuals').checked = S.settings.protectMutuals;
   render();
   // Keep in sync if another Prune tab changes data.
   chrome.storage.onChanged.addListener(async (changes) => {
@@ -48,8 +49,14 @@ function bind() {
   $('stopBtn').onclick = () => { if (S.client) S.client.cancelled = true; };
   $('search').oninput = () => { S.shown = PAGE; renderRows(); };
   for (const id of ['hideMutuals', 'hideKept', 'sort']) $(id).onchange = () => { S.shown = PAGE; renderRows(); };
+  $('protectMutuals').onchange = async (e) => {
+    S.settings = { ...S.settings, protectMutuals: e.target.checked };
+    await store.saveSettings(S.settings);
+    if (S.settings.protectMutuals) for (const id of [...S.selected]) if (S.accounts[id]?.followsYou) S.selected.delete(id);
+    renderRows();
+  };
   $('selectAll').onchange = (e) => {
-    const list = visible();
+    const list = visible().filter(selectable);
     if (e.target.checked) list.forEach((r) => S.selected.add(r.id));
     else list.forEach((r) => S.selected.delete(r.id));
     renderRows();
@@ -83,6 +90,10 @@ function bind() {
 // ---------- rendering ----------
 
 function list() { return Object.values(S.accounts); }
+
+/** Kept accounts, and mutuals while "Protect mutuals" is on, can never be queued. */
+function isProtected(r) { return Boolean(r.keep || (S.settings.protectMutuals && r.followsYou)); }
+function selectable(r) { return !isProtected(r); }
 
 function counts() {
   const c = Object.fromEntries(BUCKETS.map((b) => [b.key, 0]));
@@ -199,14 +210,15 @@ function renderRows() {
   const frag = document.createDocumentFragment();
   for (const r of slice) {
     const li = document.createElement('li');
-    li.className = 'row' + (S.selected.has(r.id) ? ' sel' : '');
+    const locked = isProtected(r);
+    li.className = 'row' + (S.selected.has(r.id) ? ' sel' : '') + (locked ? ' locked' : '');
     li.dataset.id = r.id;
     const tags = [
-      r.followsYou ? '<span class="tag">Follows you</span>' : '',
+      r.followsYou ? `<span class="tag${S.settings.protectMutuals ? ' shield' : ''}">${S.settings.protectMutuals ? 'Mutual · protected' : 'Follows you'}</span>` : '',
       r.protected ? '<span class="tag">Private</span>' : '',
     ].join('');
     li.innerHTML = `
-      <input type="checkbox" data-act="sel" ${S.selected.has(r.id) ? 'checked' : ''} aria-label="Select @${esc(r.handle)}" />
+      <input type="checkbox" data-act="sel" ${S.selected.has(r.id) ? 'checked' : ''} ${locked ? 'disabled' : ''} aria-label="Select @${esc(r.handle)}" />
       ${r.avatar ? `<img class="avatar" loading="lazy" src="${esc(r.avatar)}" alt="" referrerpolicy="no-referrer" />` : '<span class="avatar"></span>'}
       <div class="who">
         <div class="name"><a href="https://x.com/${encodeURIComponent(r.handle)}" target="_blank" rel="noopener">${esc(r.name)}</a>${tags}</div>
@@ -221,15 +233,17 @@ function renderRows() {
   ol.replaceChildren(frag);
   $('moreBtn').hidden = rows.length <= S.shown;
   $('shownCount').textContent = `${rows.length.toLocaleString()} shown`;
-  const allSel = rows.length > 0 && rows.every((r) => S.selected.has(r.id));
-  $('selectAll').checked = allSel;
-  $('selectAllLabel').textContent = `Select all ${rows.length.toLocaleString()} shown`;
+  const pickable = rows.filter(selectable);
+  $('selectAll').checked = pickable.length > 0 && pickable.every((r) => S.selected.has(r.id));
+  $('selectAll').disabled = pickable.length === 0;
+  const skipped = rows.length - pickable.length;
+  $('selectAllLabel').textContent = `Select all ${pickable.length.toLocaleString()} shown${skipped ? ` (${skipped.toLocaleString()} protected)` : ''}`;
   renderActionbar();
 }
 
 function renderActionbar() {
   // Drop selections that no longer exist (unfollowed, filtered by rescan).
-  for (const id of S.selected) if (!S.accounts[id]) S.selected.delete(id);
+  for (const id of S.selected) if (!S.accounts[id] || isProtected(S.accounts[id])) S.selected.delete(id);
   const n = S.selected.size;
   $('actionbar').hidden = n === 0 || S.job === 'unfollow';
   $('selCount').textContent = n.toLocaleString();
@@ -265,6 +279,7 @@ async function onRowClick(e) {
   } else if (!e.target.closest('a')) {
     // click anywhere on the row toggles selection
     const cb = li.querySelector('input[data-act=sel]');
+    if (cb.disabled) return;
     cb.checked = !cb.checked;
     cb.checked ? S.selected.add(id) : S.selected.delete(id);
     li.classList.toggle('sel', cb.checked);
@@ -349,7 +364,7 @@ async function startScan() {
 }
 
 async function confirmUnfollow() {
-  const recs = [...S.selected].map((id) => S.accounts[id]).filter((r) => r && !r.keep);
+  const recs = [...S.selected].map((id) => S.accounts[id]).filter((r) => r && selectable(r));
   if (!recs.length) return;
   const history = await store.log();
   const left = Math.max(0, S.settings.dailyCap - unfollowsInLastDay(history));
@@ -358,7 +373,7 @@ async function confirmUnfollow() {
   $('confirmTitle').textContent = `Unfollow ${recs.length.toLocaleString()} account${recs.length === 1 ? '' : 's'}?`;
   $('confirmBody').textContent =
     `${today.toLocaleString()} will go now (${eta(today)}), ${left < recs.length ? `the rest after your ${S.settings.dailyCap}/day cap resets. Run the queue again tomorrow for those. ` : ''}` +
-    `${mutuals ? `${mutuals} of them follow you. ` : ''}Keep this tab open while it runs. This can't be undone in bulk.`;
+    `${mutuals ? `${mutuals} of them follow you back. ` : S.settings.protectMutuals ? 'Mutuals are protected and skipped. ' : ''}Keep this tab open while it runs. This can't be undone in bulk.`;
   const ul = $('confirmList');
   ul.innerHTML = recs.slice(0, 60).map((r) => `<li>@${esc(r.handle)}</li>`).join('') + (recs.length > 60 ? `<li>+${recs.length - 60} more</li>` : '');
   $('confirmOk').disabled = left === 0;
@@ -433,10 +448,11 @@ function openSettings() {
       next[k] = el.type === 'checkbox' ? el.checked : el.type === 'number' ? Number(el.value) : el.value;
     }
     if (next.maxDelaySec < next.minDelaySec) next.maxDelaySec = next.minDelaySec;
+    $('protectMutuals').checked = next.protectMutuals;
     if (next.countReposts !== S.settings.countReposts) log('Repost setting changed. Rescan to re-sort accounts.', 'warn');
     S.settings = next;
     await store.saveSettings(next);
-    renderActionbar();
+    renderRows();
   }, { once: true });
 }
 

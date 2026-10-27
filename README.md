@@ -10,7 +10,8 @@ Prune is a browser extension that runs entirely on your machine. It talks to x.c
 
 - Loads everyone you follow and the date of each account's latest post
 - Groups them: posted in the last 30 days, quiet 31–60, quiet 61–90, quiet 90+, never posted, suspended or gone
-- Lets you filter, search, hide mutuals, and star accounts to keep forever
+- Protects mutuals by default: accounts that follow you back can't be selected or unfollowed (toggle off in the toolbar or Settings)
+- Lets you filter, search, and star accounts to keep forever
 - Unfollows the selection slowly: random 6–14 second gaps, quietest accounts first, and a rolling 24-hour cap (350 by default)
 - Stops immediately if X reports a lock or limit
 - Exports to CSV

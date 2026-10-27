@@ -51,7 +51,8 @@
 
     <section class="toolbar" id="toolbar" hidden>
       <input type="search" id="search" placeholder="Search name, handle or bio" autocomplete="off" />
-      <label class="check"><input type="checkbox" id="hideMutuals" /> Hide accounts that follow you</label>
+      <label class="check" title="Accounts that follow you back can't be selected or unfollowed"><input type="checkbox" id="protectMutuals" /> Protect mutuals</label>
+      <label class="check"><input type="checkbox" id="hideMutuals" /> Hide mutuals</label>
       <label class="check"><input type="checkbox" id="hideKept" checked /> Hide kept</label>
       <select id="sort">
         <option value="oldest">Longest quiet first</option>
@@ -120,6 +121,7 @@
         <label><span>Max gap (sec)</span><input type="number" name="maxDelaySec" min="1" max="300" /></label>
       </div>
       <label class="check field"><input type="checkbox" name="countReposts" /> Count reposts as activity</label>
+      <label class="check field"><input type="checkbox" name="protectMutuals" /> Only unfollow accounts that don't follow me back</label>
       <label class="field">
         <span>Reuse activity data newer than (days)</span>
         <input type="number" name="recheckDays" min="0" max="60" />
