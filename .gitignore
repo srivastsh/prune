@@ -1,0 +1,4 @@
+node_modules/
+prune.zip
+*.png.tmp
+.DS_Store

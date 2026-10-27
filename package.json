@@ -1,0 +1,13 @@
+{
+  "name": "prune-for-x",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Find the dead accounts you follow on X and unfollow them at a safe pace. Local-only browser extension.",
+  "type": "module",
+  "license": "MIT",
+  "scripts": {
+    "test": "node --test test/*.test.js",
+    "check": "for f in src/*.js src/lib/*.js; do node --check \"$f\" || exit 1; done",
+    "zip": "rm -f prune.zip && zip -rq prune.zip manifest.json src icons -x 'icons/icon512.png'"
+  }
+}

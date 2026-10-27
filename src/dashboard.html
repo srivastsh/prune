@@ -1,0 +1,147 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Prune</title>
+  <link rel="icon" href="../icons/icon32.png" />
+  <link rel="stylesheet" href="dashboard.css" />
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <img src="../icons/icon48.png" alt="" width="22" height="22" />
+      <span>Prune</span>
+    </div>
+    <div class="account" id="account" hidden>
+      <img id="accountAvatar" alt="" />
+      <span id="accountHandle"></span>
+    </div>
+    <div class="top-actions">
+      <button class="ghost" id="exportBtn" disabled>Export CSV</button>
+      <button class="ghost" id="settingsBtn">Settings</button>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero">
+      <div>
+        <h1 id="heroCount">Who you follow, sorted by when they last posted.</h1>
+        <p class="sub" id="heroSub">Prune reads your following list through your own X session in this browser. Nothing is sent anywhere else.</p>
+      </div>
+      <button class="primary" id="scanBtn">Scan my following</button>
+    </section>
+
+    <section class="progress" id="progress" hidden>
+      <div class="progress-row">
+        <span id="progressLabel">Starting…</span>
+        <span class="muted" id="progressCount"></span>
+      </div>
+      <div class="bar"><div id="progressFill"></div></div>
+      <div class="progress-row">
+        <span class="muted" id="progressWait"></span>
+        <span class="progress-actions">
+          <button class="ghost small" id="pauseBtn">Pause</button>
+          <button class="ghost small danger" id="stopBtn">Stop</button>
+        </span>
+      </div>
+    </section>
+
+    <section class="buckets" id="buckets" hidden></section>
+
+    <section class="toolbar" id="toolbar" hidden>
+      <input type="search" id="search" placeholder="Search name, handle or bio" autocomplete="off" />
+      <label class="check"><input type="checkbox" id="hideMutuals" /> Hide accounts that follow you</label>
+      <label class="check"><input type="checkbox" id="hideKept" checked /> Hide kept</label>
+      <select id="sort">
+        <option value="oldest">Longest quiet first</option>
+        <option value="newest">Most recent first</option>
+        <option value="followers">Most followers</option>
+        <option value="fewest">Fewest followers</option>
+        <option value="handle">Handle A–Z</option>
+      </select>
+    </section>
+
+    <section class="table-wrap" id="tableWrap" hidden>
+      <div class="table-head">
+        <label class="check"><input type="checkbox" id="selectAll" /> <span id="selectAllLabel">Select all shown</span></label>
+        <span class="muted" id="shownCount"></span>
+      </div>
+      <ol class="rows" id="rows"></ol>
+      <button class="ghost more" id="moreBtn" hidden>Show more</button>
+    </section>
+
+    <section class="empty" id="empty">
+      <ol class="steps">
+        <li><b>Sign in to x.com</b> in this browser if you aren't already.</li>
+        <li><b>Scan.</b> Prune loads everyone you follow and checks each account's latest post. 1,000 accounts usually takes a few minutes.</li>
+        <li><b>Review.</b> Accounts are grouped into 30, 60 and 90+ days quiet. Star anyone you want to keep.</li>
+        <li><b>Unfollow.</b> The queue runs slowly with random gaps and a daily cap, so it looks like a person, not a script.</li>
+      </ol>
+    </section>
+
+    <details class="log" id="logBox">
+      <summary>Activity log</summary>
+      <ol id="log"></ol>
+    </details>
+  </main>
+
+  <div class="actionbar" id="actionbar" hidden>
+    <span><b id="selCount">0</b> selected <span class="muted" id="selEta"></span></span>
+    <span class="actionbar-buttons">
+      <button class="ghost" id="clearSel">Clear</button>
+      <button class="ghost" id="keepSel">Keep</button>
+      <button class="primary danger-fill" id="unfollowBtn">Unfollow</button>
+    </span>
+  </div>
+
+  <dialog id="confirmDlg">
+    <form method="dialog">
+      <h2 id="confirmTitle"></h2>
+      <p id="confirmBody"></p>
+      <ul class="confirm-list" id="confirmList"></ul>
+      <div class="dlg-actions">
+        <button value="cancel" class="ghost">Cancel</button>
+        <button value="ok" class="primary danger-fill" id="confirmOk">Start unfollowing</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="settingsDlg">
+    <form method="dialog" id="settingsForm">
+      <h2>Settings</h2>
+      <label class="field">
+        <span>Unfollows per 24 hours</span>
+        <input type="number" name="dailyCap" min="1" max="1000" />
+        <small>X doesn't publish a limit. 300 to 400 a day has been safe in practice; going much higher risks a temporary lock.</small>
+      </label>
+      <div class="field two">
+        <label><span>Min gap (sec)</span><input type="number" name="minDelaySec" min="1" max="120" /></label>
+        <label><span>Max gap (sec)</span><input type="number" name="maxDelaySec" min="1" max="300" /></label>
+      </div>
+      <label class="check field"><input type="checkbox" name="countReposts" /> Count reposts as activity</label>
+      <label class="field">
+        <span>Reuse activity data newer than (days)</span>
+        <input type="number" name="recheckDays" min="0" max="60" />
+      </label>
+      <label class="field">
+        <span>Method</span>
+        <select name="method">
+          <option value="auto">Automatic (API, falls back to pages)</option>
+          <option value="api">API only</option>
+          <option value="dom">Pages only (slow, most robust)</option>
+        </select>
+      </label>
+      <div class="dlg-actions spread">
+        <button type="button" class="ghost danger" id="resetBtn">Erase all Prune data</button>
+        <span>
+          <button value="cancel" class="ghost">Cancel</button>
+          <button value="save" class="primary">Save</button>
+        </span>
+      </div>
+    </form>
+  </dialog>
+
+  <script type="module" src="dashboard.js"></script>
+</body>
+</html>
