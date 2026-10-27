@@ -136,3 +136,33 @@ test('CSV escapes and relTime reads well', () => {
   assert.equal(relTime(NOW - 400 * DAY, NOW), '13 months ago');
   assert.equal(relTime(NOW - 1000 * DAY, NOW), '2.7 years ago');
 });
+
+import { pruneRank, lowSignalScore, categorize, reasonFor, tierOf } from '../src/lib/parse.js';
+
+test('deck order: gone > never > no posts > dead (longest first) > fading > active', () => {
+  const recs = {
+    gone: { unavailable: true },
+    never: { never: true },
+    blank: {},
+    dead5y: { lastPostAt: NOW - 1800 * DAY },
+    dead100: { lastPostAt: NOW - 100 * DAY },
+    fading45: { lastPostAt: NOW - 45 * DAY },
+    activeBrand: { lastPostAt: NOW - 1 * DAY, bio: 'The official account of Acme. Follow us for deals', followers: 3e6, followIdx: 900 },
+    activeFriend: { lastPostAt: NOW - 1 * DAY, bio: 'climbing, coffee', followers: 300, followIdx: 10 },
+  };
+  const order = Object.entries(recs).sort((a, b) => pruneRank(b[1], { total: 1000, now: NOW }) - pruneRank(a[1], { total: 1000, now: NOW })).map(([k]) => k);
+  assert.deepEqual(order, ['gone', 'never', 'blank', 'dead5y', 'dead100', 'fading45', 'activeBrand', 'activeFriend']);
+});
+
+test('low-signal scoring prefers old, big, brand-ish accounts and protects people and builders', () => {
+  const ctx = { total: 1000, now: NOW };
+  const oldNews = { lastPostAt: NOW - DAY, bio: 'Breaking news and headlines', followers: 5e7, followIdx: 990, statuses: 500000, createdAt: NOW - 5000 * DAY };
+  const founder = { bio: 'Founder & CEO building AI agents', followers: 2e5, followIdx: 990 };
+  const smallOld = { bio: 'just vibes', followers: 120, followIdx: 990 };
+  assert.ok(lowSignalScore(oldNews, ctx) > lowSignalScore(founder, ctx));
+  assert.ok(lowSignalScore(founder, ctx) > lowSignalScore(smallOld, ctx));
+  assert.equal(categorize(oldNews).key, 'news');
+  assert.equal(reasonFor(oldNews, NOW), 'News feed, mega account');
+  assert.equal(tierOf({ lastPostAt: NOW - 40 * DAY }, NOW), 2);
+  assert.equal(reasonFor({ lastPostAt: NOW - 400 * DAY }, NOW), 'Silent 13 months');
+});

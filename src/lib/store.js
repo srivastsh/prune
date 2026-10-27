@@ -26,6 +26,8 @@ export const store = {
   async saveMeta(m) { return set('meta', m); },
   async settings() { return { ...DEFAULT_SETTINGS, ...(await get('settings', {})) }; },
   async saveSettings(s) { return set('settings', s); },
+  async queue() { return get('queue', []); },
+  async saveQueue(ids) { return set('queue', ids); },
   async log() { return get('unfollowLog', []); },
   async appendLog(entry) {
     const log = await get('unfollowLog', []);

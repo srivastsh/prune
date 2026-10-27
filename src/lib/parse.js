@@ -86,6 +86,8 @@ export function normalizeV1User(u) {
   if (u.status) {
     rec.lastPostAt = toMs(u.status.created_at) ?? snowflakeToMs(u.status.id_str);
     rec.lastPostId = u.status.id_str || null;
+    rec.lastPostText = (u.status.full_text || u.status.text || '').slice(0, 280);
+    rec.lastPostIsRepost = Boolean(u.status.retweeted_status);
     rec.source = 'v1';
   } else if (u.statuses_count === 0) {
     rec.lastPostAt = null;
@@ -139,6 +141,7 @@ export function parseV1Lookup(json) {
 export function parseUserTweets(json, userId, { countReposts = true } = {}) {
   let best = null;
   let bestId = null;
+  let bestText = '';
   let sawAny = false;
   walk(json, (node) => {
     const t = node.tweet_results?.result;
@@ -155,9 +158,10 @@ export function parseUserTweets(json, userId, { countReposts = true } = {}) {
     if (ms && (best === null || ms > best)) {
       best = ms;
       bestId = pick(tw.rest_id, L.id_str);
+      bestText = (L.full_text || L.text || '').slice(0, 280);
     }
   });
-  return { lastPostAt: best, lastPostId: bestId, sawAny };
+  return { lastPostAt: best, lastPostId: bestId, lastPostText: bestText, sawAny };
 }
 
 /** Pull "The following features cannot be null: a, b" style errors into a list. */
@@ -241,4 +245,74 @@ export function toCSV(records, now = Date.now()) {
     `https://x.com/${r.handle}`,
   ]);
   return [head, ...rows].map((row) => row.map(csvCell).join(',')).join('\n');
+}
+
+// ---------- ranking for the swipe deck ----------
+// Order: suspended/gone, never posted, no visible posts, silent 90+ days (longest first),
+// silent 31–90 days, then active accounts from least to most useful.
+
+const CATEGORY_RULES = [
+  ['brand', 25, /(official (x|twitter)? ?(account|page|channel|home)|customer|support|shop now|our app|we're|we are|follow us|deals|store\b|brand\b|®|™)/i],
+  ['news', 20, /(breaking|news\b|newspaper|magazine|journalism|headlines|the latest|coverage|reporting|current events)/i],
+  ['meme', 20, /(meme|shitpost|funny|parody|cringe|dm for promo|submissions|viral|no ?context|poorly aged|hourly)/i],
+  ['media', 15, /(hip.?hop|charts|pop culture|music news|culture news|entertainment|celebrity news)/i],
+  ['sports', 15, /(\bnba\b|\bnfl\b|\bmlb\b|\bnhl\b|soccer|football|\bfc\b|\bufc\b|\bmma\b|\bf1\b|espn|athlete|olympi)/i],
+];
+const USEFUL = /(\bai\b|\bml\b|llm|engineer|founder|ceo|startup|product|\bpm\b|security|infosec|research|developer|design|investor|\bvc\b|writer|author|professor|scientist|building|builder)/i;
+
+/** What kind of account this is, by bio. Returns { key, weight } or null. */
+export function categorize(rec) {
+  const s = `${rec.name || ''} ${rec.bio || ''}`;
+  for (const [key, weight, re] of CATEGORY_RULES) if (re.test(s)) return { key, weight };
+  return null;
+}
+
+/** 0–100, higher = less useful. Only meaningful for accounts active in the last 30 days. */
+export function lowSignalScore(rec, { total = 1, now = Date.now() } = {}) {
+  let s = 0;
+  // Oldest follows are the most likely to be stale interests.
+  if (rec.followIdx != null && total > 1) s += (rec.followIdx / (total - 1)) * 35;
+  const cat = categorize(rec);
+  if (cat) s += cat.weight;
+  const ageDays = rec.createdAt ? Math.max(1, (now - rec.createdAt) / DAY) : null;
+  const rate = ageDays && rec.statuses ? rec.statuses / ageDays : 0;
+  s += Math.min(rate, 100) / 10; // firehose accounts: up to +10
+  const f = rec.followers || 0;
+  if (f >= 1e6) s += 12; else if (f >= 1e5) s += 6;
+  if (f < 5000) s -= 25; // probably a real person you know
+  if (USEFUL.test(`${rec.name || ''} ${rec.bio || ''}`)) s -= 15;
+  return Math.max(0, Math.min(100, s));
+}
+
+/** Sort key for the deck: larger = show earlier (more likely an unfollow). */
+export function pruneRank(rec, ctx = {}) {
+  const now = ctx.now ?? Date.now();
+  if (rec.unavailable) return 3000;
+  if (rec.never) return 2900;
+  if (rec.lastPostAt == null) return 2800;
+  const d = daysSince(rec.lastPostAt, now);
+  if (d > 90) return 1000 + Math.min(d, 15000) / 10;   // tier 1, longest silence first
+  if (d > 30) return 500 + d;                           // tier 2
+  return lowSignalScore(rec, { ...ctx, now });          // tier 3 → most useful last
+}
+
+export function tierOf(rec, now = Date.now()) {
+  const b = bucketOf(rec, now);
+  if (b === 'active') return 3;
+  if (b === 'd60' || b === 'd90') return 2;
+  return 1;
+}
+
+export function reasonFor(rec, now = Date.now()) {
+  if (rec.unavailable) return 'Suspended or deleted';
+  if (rec.never) return 'Never posted';
+  if (rec.lastPostAt == null) return 'No visible posts';
+  const d = daysSince(rec.lastPostAt, now);
+  if (d > 30) return `Silent ${relTime(rec.lastPostAt, now).replace(' ago', '')}`;
+  const cat = categorize(rec);
+  const names = { brand: 'Brand account', news: 'News feed', meme: 'Meme account', media: 'Pop-culture feed', sports: 'Sports' };
+  const bits = [];
+  if (cat) bits.push(names[cat.key]);
+  if ((rec.followers || 0) >= 1e6) bits.push('mega account');
+  return bits.length ? bits.join(', ') : 'Active';
 }

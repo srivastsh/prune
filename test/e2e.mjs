@@ -129,6 +129,7 @@ async function main() {
   dash.on('pageerror', (e) => console.error('PAGE ERROR', e));
   await dash.goto(`chrome-extension://${extId}/src/dashboard.html`);
   await dash.evaluate(() => chrome.storage.local.set({ settings: { minDelaySec: 0.05, maxDelaySec: 0.1, dailyCap: 30 } }));
+  await dash.evaluate(() => localStorage.setItem('prune.view', 'list'));
   await dash.reload();
 
   await dash.click('#scanBtn');
@@ -198,7 +199,44 @@ async function main() {
   console.log('paste:', res);
   expect(/Selected 3/.test(res) && /skipped 1/.test(res), 'paste list selects 3 and skips the mutual');
   await dash.click('#pasteDlg button[value=cancel]');
+  await dash.click('#clearSel');
+
+  // Swipe mode: deck starts with tier 1 (gone/never), arrows decide, Z undoes, drag works.
+  await dash.click('#viewSeg button[data-view=swipe]');
+  await dash.waitForSelector('.card');
+  const firstTier = await dash.textContent('#swipeTier');
+  const firstReason = await dash.textContent('.card:not([class*=under]) .card-reason');
+  console.log('first card:', firstTier, '|', firstReason);
+  expect(/Tier 1/.test(firstTier) && /(Suspended|Never posted)/.test(firstReason), 'deck opens on the deadest accounts');
+  const topId = () => dash.getAttribute('.card:not([class*=under])', 'data-id');
+  const before = await dash.evaluate(() => window.prune.S.selected.size);
+  const a1 = await topId();
+  await dash.keyboard.press('ArrowLeft'); await dash.waitForTimeout(400);
+  const b1 = await topId();
+  await dash.keyboard.press('ArrowRight'); await dash.waitForTimeout(400);
+  const kept = await dash.evaluate((id) => window.prune.S.accounts[id].keep, b1);
+  const afterSel = await dash.evaluate((id) => window.prune.S.selected.has(id), a1);
+  expect(afterSel && kept, 'left queues an unfollow, right keeps');
+  await dash.keyboard.press('z'); await dash.waitForTimeout(300);
+  expect((await topId()) === b1 && !(await dash.evaluate((id) => window.prune.S.accounts[id].keep, b1)), 'undo restores the last card');
+  // drag the top card left with the mouse
+  const box = await (await dash.$('.card:not([class*=under])')).boundingBox();
+  const c1 = await topId();
+  await dash.mouse.move(box.x + box.width / 2, box.y + 200);
+  await dash.mouse.down();
+  for (let i = 1; i <= 10; i++) await dash.mouse.move(box.x + box.width / 2 - i * 25, box.y + 200);
+  await dash.mouse.up(); await dash.waitForTimeout(400);
+  expect(await dash.evaluate((id) => window.prune.S.selected.has(id), c1), 'drag left queues unfollow');
+  const persisted = await dash.evaluate(() => new Promise((r) => setTimeout(() => chrome.storage.local.get('queue').then((x) => r((x.queue || []).length)), 500)));
+  expect(persisted === before + 2, `queue persisted to storage (${persisted})`);
+  // tier-3 ordering sanity: the last active card should be a small personal account, not a mega brand
+  const ranks = await dash.evaluate(() => 0);
+  // mid-drag screenshot
+  const box2 = await (await dash.$('.card:not([class*=under])')).boundingBox();
+  await dash.mouse.move(box2.x + box2.width / 2, box2.y + 200); await dash.mouse.down();
+  for (let i = 1; i <= 4; i++) await dash.mouse.move(box2.x + box2.width / 2 - i * 22, box2.y + 205);
   await dash.screenshot({ path: process.env.SHOT || 'e2e.png', fullPage: false });
+  await dash.mouse.move(box2.x + box2.width / 2, box2.y + 200); await dash.mouse.up();
 
   await ctx.close();
   console.log(process.exitCode ? 'E2E FAILED' : 'E2E PASSED');

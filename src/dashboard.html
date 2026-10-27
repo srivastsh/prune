@@ -29,7 +29,13 @@
         <h1 id="heroCount">Who you follow, sorted by when they last posted.</h1>
         <p class="sub" id="heroSub">Prune reads your following list through your own X session in this browser. Nothing is sent anywhere else.</p>
       </div>
-      <button class="primary" id="scanBtn">Scan my following</button>
+      <div class="hero-actions">
+        <div class="seg" id="viewSeg" hidden>
+          <button type="button" data-view="swipe">Swipe</button>
+          <button type="button" data-view="list">List</button>
+        </div>
+        <button class="primary" id="scanBtn">Scan my following</button>
+      </div>
     </section>
 
     <section class="progress" id="progress" hidden>
@@ -45,6 +51,33 @@
           <button class="ghost small danger" id="stopBtn">Stop</button>
         </span>
       </div>
+    </section>
+
+    <section class="swipe" id="swipe" hidden>
+      <div class="swipe-top">
+        <span id="swipeTier" class="tier-chip"></span>
+        <span class="swipe-right">
+          <span class="muted" id="swipeCount"></span>
+          <button class="ghost small" id="swipeReview" hidden>Review</button>
+          <button class="primary small danger-fill" id="swipeGo" hidden>Unfollow</button>
+        </span>
+      </div>
+      <div class="deck" id="deck" aria-live="polite"></div>
+      <div class="swipe-actions">
+        <button class="round small-round" id="undoBtn" title="Undo (Z)" aria-label="Undo">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H11"/></svg>
+        </button>
+        <button class="round nope" id="nopeBtn" title="Unfollow (←)" aria-label="Unfollow">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6 6 18"/></svg>
+        </button>
+        <button class="round like" id="likeBtn" title="Keep (→)" aria-label="Keep">
+          <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>
+        </button>
+        <button class="round small-round" id="skipBtn" title="Decide later (↓)" aria-label="Decide later">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M6 13l6 6 6-6"/></svg>
+        </button>
+      </div>
+      <p class="swipe-hint muted">← Unfollow &nbsp;·&nbsp; → Keep &nbsp;·&nbsp; ↓ Later &nbsp;·&nbsp; Z Undo</p>
     </section>
 
     <section class="buckets" id="buckets" hidden></section>
@@ -95,6 +128,7 @@
     <span class="actionbar-buttons">
       <button class="ghost" id="clearSel">Clear</button>
       <button class="ghost" id="keepSel">Keep</button>
+      <button class="ghost" id="reviewSel">Review</button>
       <button class="primary danger-fill" id="unfollowBtn">Unfollow</button>
     </span>
   </div>

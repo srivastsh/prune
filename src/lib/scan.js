@@ -27,14 +27,16 @@ export async function runScan(client, store, { onProgress, log, settings, rescan
 
   // ---------- phase 1: the list ----------
   let listSource = null;
+  let followIdx = 0; // X lists follows newest first
   const merge = (users, source) => {
     for (const u of users) {
       const old = prev[u.id] || {};
-      const rec = { ...old, ...u, keep: old.keep || false, listedAt: now };
+      const rec = { ...old, ...u, keep: old.keep || false, queued: old.queued || false, listedAt: now, followIdx: followIdx++ };
       // v1 records carry fresh activity; GraphQL records don't, so keep old activity if still fresh.
       if (source !== 'v1' || u.lastPostAt === undefined) {
         if (old.lastPostAt !== undefined && u.lastPostAt === undefined) {
           rec.lastPostAt = old.lastPostAt;
+          rec.lastPostText = old.lastPostText;
           rec.checkedAt = old.checkedAt;
           rec.source = old.source;
         }
@@ -116,7 +118,7 @@ export async function runScan(client, store, { onProgress, log, settings, rescan
           const u = byId[r.id];
           if (!u) { r.unavailable = true; r.checkedAt = Date.now(); continue; } // suspended / deactivated
           if (u.lastPostAt !== undefined || u.never) {
-            Object.assign(r, { lastPostAt: u.lastPostAt ?? null, lastPostId: u.lastPostId, never: Boolean(u.never), source: 'v1', checkedAt: Date.now() });
+            Object.assign(r, { lastPostAt: u.lastPostAt ?? null, lastPostId: u.lastPostId, lastPostText: u.lastPostText, never: Boolean(u.never), source: 'v1', checkedAt: Date.now() });
           }
         }
         done = Math.min(total, i + batch.length);
@@ -146,7 +148,7 @@ export async function runScan(client, store, { onProgress, log, settings, rescan
       if (method === 'gql') {
         const res = await client.lastPostGql(r.id, { countReposts: settings.countReposts });
         if (res.unavailable) r.unavailable = true;
-        else if (res.lastPostAt) Object.assign(r, { lastPostAt: res.lastPostAt, lastPostId: res.lastPostId, never: false });
+        else if (res.lastPostAt) Object.assign(r, { lastPostAt: res.lastPostAt, lastPostId: res.lastPostId, lastPostText: res.lastPostText, never: false });
         else if (!res.sawAny) Object.assign(r, { never: r.statuses === 0, lastPostAt: null });
         r.source = 'gql';
         consecutiveFail = 0;

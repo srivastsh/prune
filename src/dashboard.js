@@ -1,4 +1,4 @@
-import { BUCKETS, bucketOf, daysSince, relTime, toCSV } from './lib/parse.js';
+import { BUCKETS, bucketOf, daysSince, relTime, toCSV, pruneRank, tierOf, reasonFor } from './lib/parse.js';
 import { XClient, Cancelled } from './lib/x.js';
 import { store, unfollowsInLastDay } from './lib/store.js';
 import { runScan } from './lib/scan.js';
@@ -16,6 +16,9 @@ const S = {
   shown: PAGE,
   client: null,          // set while a job runs
   job: null,             // 'scan' | 'unfollow'
+  view: 'swipe',         // 'swipe' | 'list'
+  skipped: [],           // ids pushed to the back of the deck this session
+  history: [],           // swipe decisions, for undo
 };
 
 // ---------- boot ----------
@@ -26,7 +29,10 @@ async function init() {
   S.settings = await store.settings();
   S.accounts = await store.accounts();
   S.meta = await store.meta();
+  for (const id of await store.queue()) if (S.accounts[id]) S.selected.add(id);
+  try { S.view = localStorage.getItem('prune.view') || 'swipe'; } catch {}
   bind();
+  bindSwipe();
   $('protectMutuals').checked = S.settings.protectMutuals;
   render();
   // Keep in sync if another Prune tab changes data.
@@ -64,7 +70,8 @@ function bind() {
   $('pasteBtn').onclick = () => { $('pasteResult').textContent = ''; $('pasteDlg').showModal(); };
   $('pasteOk').onclick = (e) => { e.preventDefault(); selectFromText($('pasteText').value); };
   $('moreBtn').onclick = () => { S.shown += PAGE; renderRows(); };
-  $('clearSel').onclick = () => { S.selected.clear(); renderRows(); };
+  $('clearSel').onclick = () => { S.selected.clear(); renderRows(); if (S.view === 'swipe') renderDeck(); };
+  $('reviewSel').onclick = () => { if (S.view === 'swipe') { S.view = 'list'; S.onlySelected = false; render(); } S.filter.clear(); S.shown = PAGE; $('search').value = ''; S.onlySelected = !S.onlySelected; $('reviewSel').textContent = S.onlySelected ? 'Show all' : 'Review'; renderRows(); };
   $('keepSel').onclick = async () => {
     for (const id of S.selected) if (S.accounts[id]) S.accounts[id].keep = true;
     S.selected.clear();
@@ -108,9 +115,14 @@ function render() {
   const all = list();
   const has = all.length > 0;
   $('empty').hidden = has || S.job === 'scan';
-  $('buckets').hidden = !has;
-  $('toolbar').hidden = !has;
-  $('tableWrap').hidden = !has;
+  const swipe = has && S.view === 'swipe';
+  document.body.classList.toggle('swiping', swipe);
+  $('viewSeg').hidden = !has;
+  for (const b of $('viewSeg').querySelectorAll('button')) b.classList.toggle('on', b.dataset.view === S.view);
+  $('swipe').hidden = !swipe;
+  $('buckets').hidden = !has || swipe;
+  $('toolbar').hidden = !has || swipe;
+  $('tableWrap').hidden = !has || swipe;
   $('exportBtn').disabled = !has;
   $('scanBtn').disabled = Boolean(S.job);
   $('scanBtn').textContent = S.meta.lastScan ? 'Rescan' : 'Scan my following';
@@ -131,6 +143,7 @@ function render() {
   }
   renderBuckets();
   renderRows();
+  if (swipe) renderDeck();
 }
 
 function renderBuckets() {
@@ -165,6 +178,7 @@ function visible() {
   const hideKept = $('hideKept').checked;
   const now = Date.now();
   let rows = list().filter((r) => {
+    if (S.onlySelected && !S.selected.has(r.id)) return false;
     if (S.filter.size && !S.filter.has(bucketOf(r, now))) return false;
     if (hideMutuals && r.followsYou) return false;
     if (hideKept && r.keep) return false;
@@ -247,9 +261,16 @@ function renderActionbar() {
   // Drop selections that no longer exist (unfollowed, filtered by rescan).
   for (const id of S.selected) if (!S.accounts[id] || isProtected(S.accounts[id])) S.selected.delete(id);
   const n = S.selected.size;
-  $('actionbar').hidden = n === 0 || S.job === 'unfollow';
+  saveQueueSoon();
+  $('actionbar').hidden = n === 0 || S.job === 'unfollow' || S.view === 'swipe';
   $('selCount').textContent = n.toLocaleString();
   $('selEta').textContent = n ? `· ${eta(n)}` : '';
+}
+
+let queueTimer = null;
+function saveQueueSoon() {
+  clearTimeout(queueTimer);
+  queueTimer = setTimeout(() => store.saveQueue([...S.selected]), 300);
 }
 
 function eta(n) {
@@ -287,6 +308,190 @@ async function onRowClick(e) {
     li.classList.toggle('sel', cb.checked);
     renderActionbar();
   }
+}
+
+// ---------- swipe ----------
+
+function deckList() {
+  const now = Date.now();
+  const total = list().length;
+  const skipped = new Set(S.skipped);
+  const main = list()
+    .filter((r) => !r.keep && !S.selected.has(r.id) && !isProtected(r) && !skipped.has(r.id))
+    .map((r) => [r, pruneRank(r, { total, now })])
+    .sort((a, b) => b[1] - a[1])
+    .map(([r]) => r);
+  const later = S.skipped.map((id) => S.accounts[id]).filter((r) => r && !r.keep && !S.selected.has(r.id) && !isProtected(r));
+  const out = main.concat(later);
+  if (S.front) {
+    const i = out.findIndex((r) => r.id === S.front);
+    if (i > 0) out.unshift(out.splice(i, 1)[0]);
+  }
+  return out;
+}
+
+const TIER_LABEL = { 1: 'Tier 1 · Dead', 2: 'Tier 2 · Fading', 3: 'Tier 3 · Active' };
+
+function cardHTML(r, now) {
+  const b = bucketOf(r, now);
+  const last = r.unavailable ? 'Gone' : r.never ? 'Never' : r.lastPostAt ? relTime(r.lastPostAt, now) : '—';
+  const post = r.lastPostText
+    ? `<div class="card-post"><small>${r.lastPostIsRepost ? 'Latest repost' : 'Latest post'}</small>${esc(r.lastPostText)}</div>`
+    : '<div class="card-post"><small>Latest post</small>Nothing to show.</div>';
+  return `
+    <div class="stamp keep">KEEP</div><div class="stamp nope">UNFOLLOW</div>
+    <div class="card-head">
+      ${r.avatar ? `<img class="card-avatar" src="${esc(r.avatar.replace('_normal.', '_200x200.'))}" alt="" draggable="false" referrerpolicy="no-referrer" />` : '<span class="card-avatar"></span>'}
+      <div style="min-width:0">
+        <div class="card-name">${esc(r.name)}</div>
+        <div class="card-handle">@${esc(r.handle)}${r.verified ? ' · verified' : ''}${r.protected ? ' · private' : ''}</div>
+      </div>
+    </div>
+    <div class="card-stats">
+      <div><b>${last}</b><span>Last post</span></div>
+      <div><b>${fmtNum(r.followers) || '—'}</b><span>Followers</span></div>
+      <div><b>${fmtNum(r.statuses) || '—'}</b><span>Posts</span></div>
+    </div>
+    <div class="card-reason"><i class="dot" style="background:var(--b-${b})"></i>${esc(reasonFor(r, now))}</div>
+    ${r.bio ? `<p class="card-bio">${esc(r.bio)}</p>` : ''}
+    ${post}
+    <div class="card-foot">
+      <span class="muted">${r.followsYou ? 'Follows you' : 'Doesn’t follow you'}</span>
+      <a href="https://x.com/${encodeURIComponent(r.handle)}" target="_blank" rel="noopener">Open on X ↗</a>
+    </div>`;
+}
+
+function renderDeck() {
+  const now = Date.now();
+  const deck = deckList();
+  const el = $('deck');
+  const top = deck[0];
+  const q = S.selected.size;
+  $('swipeCount').textContent = `${deck.length.toLocaleString()} left`;
+  $('swipeGo').hidden = $('swipeReview').hidden = q === 0 || Boolean(S.job);
+  $('swipeGo').textContent = `Unfollow ${q.toLocaleString()}`;
+  document.body.classList.toggle('swiping', true);
+  if (top) {
+    const t = tierOf(top, now);
+    $('swipeTier').innerHTML = `<i class="dot" style="background:var(--b-${bucketOf(top, now)})"></i>${TIER_LABEL[t]}`;
+  } else {
+    $('swipeTier').textContent = '';
+  }
+  el.replaceChildren();
+  if (!top) {
+    const n = S.selected.size;
+    el.innerHTML = `<div class="deck-empty"><div><b>You've been through everyone.</b>${n ? `${n.toLocaleString()} queued to unfollow.<br><br><button class="primary danger-fill" id="deckGo">Unfollow ${n.toLocaleString()}</button>` : 'Nothing queued.'}</div></div>`;
+    const go = document.getElementById('deckGo');
+    if (go) go.onclick = () => confirmUnfollow();
+    return;
+  }
+  deck.slice(0, 3).reverse().forEach((r, i, arr) => {
+    const depth = arr.length - 1 - i; // 0 = top
+    const card = document.createElement('article');
+    card.className = 'card' + (depth ? ` under-${depth}` : '');
+    card.dataset.id = r.id;
+    card.innerHTML = cardHTML(r, now);
+    el.appendChild(card);
+    if (!depth) attachDrag(card);
+  });
+}
+
+function attachDrag(card) {
+  let sx = 0, sy = 0, dx = 0, dy = 0, dragging = false, pid = null;
+  const keep = card.querySelector('.stamp.keep');
+  const nope = card.querySelector('.stamp.nope');
+  const paint = () => {
+    card.style.transform = `translate(${dx}px, ${dy * 0.4}px) rotate(${dx / 18}deg)`;
+    keep.style.opacity = Math.max(0, Math.min(1, dx / 110));
+    nope.style.opacity = Math.max(0, Math.min(1, -dx / 110));
+  };
+  card.addEventListener('pointerdown', (e) => {
+    if (e.target.closest('a') || e.button !== 0) return;
+    dragging = true; pid = e.pointerId; sx = e.clientX; sy = e.clientY; dx = dy = 0;
+    card.setPointerCapture(pid);
+    card.classList.add('dragging');
+  });
+  card.addEventListener('pointermove', (e) => {
+    if (!dragging || e.pointerId !== pid) return;
+    dx = e.clientX - sx; dy = e.clientY - sy;
+    paint();
+  });
+  const end = (e) => {
+    if (!dragging || e.pointerId !== pid) return;
+    dragging = false;
+    card.classList.remove('dragging');
+    if (dx > 110) decide('keep');
+    else if (dx < -110) decide('unfollow');
+    else if (dy > 140) decide('later');
+    else { dx = dy = 0; card.style.transform = ''; keep.style.opacity = nope.style.opacity = 0; }
+  };
+  card.addEventListener('pointerup', end);
+  card.addEventListener('pointercancel', end);
+}
+
+let deciding = false;
+async function decide(dir) {
+  if (deciding || S.job) return;
+  const card = $('deck').querySelector('.card:not([class*="under"])');
+  if (!card) return;
+  const r = S.accounts[card.dataset.id];
+  if (!r) return;
+  deciding = true;
+  // fly out
+  const x = dir === 'keep' ? 1 : dir === 'unfollow' ? -1 : 0;
+  card.style.transform = x ? `translate(${x * 700}px, -40px) rotate(${x * 28}deg)` : 'translate(0, 600px)';
+  card.style.opacity = '0';
+  const stamp = card.querySelector(dir === 'keep' ? '.stamp.keep' : '.stamp.nope');
+  if (x && stamp) stamp.style.opacity = 1;
+  if (S.front === r.id) S.front = null;
+  S.history.push({ id: r.id, dir, prevKeep: r.keep });
+  if (S.history.length > 200) S.history.shift();
+  if (dir === 'keep') { r.keep = true; await store.saveAccounts(S.accounts); }
+  else if (dir === 'unfollow') S.selected.add(r.id);
+  else S.skipped.push(r.id);
+  saveQueueSoon();
+  setTimeout(() => { deciding = false; renderDeck(); }, 230);
+}
+
+async function undo() {
+  const h = S.history.pop();
+  if (!h) return;
+  const r = S.accounts[h.id];
+  if (!r) return;
+  if (h.dir === 'keep') { r.keep = h.prevKeep; await store.saveAccounts(S.accounts); }
+  else if (h.dir === 'unfollow') S.selected.delete(h.id);
+  else S.skipped = S.skipped.filter((id) => id !== h.id);
+  // bring it back to the front
+  S.skipped = S.skipped.filter((id) => id !== h.id);
+  S.front = h.id;
+  saveQueueSoon();
+  renderDeck();
+}
+
+function bindSwipe() {
+  for (const b of $('viewSeg').querySelectorAll('button')) {
+    b.onclick = () => {
+      S.view = b.dataset.view;
+      try { localStorage.setItem('prune.view', S.view); } catch {}
+      S.onlySelected = false;
+      $('reviewSel').textContent = 'Review';
+      render();
+    };
+  }
+  $('nopeBtn').onclick = () => decide('unfollow');
+  $('likeBtn').onclick = () => decide('keep');
+  $('skipBtn').onclick = () => decide('later');
+  $('undoBtn').onclick = undo;
+  $('swipeGo').onclick = () => confirmUnfollow();
+  $('swipeReview').onclick = () => { S.view = 'list'; S.onlySelected = true; $('reviewSel').textContent = 'Show all'; S.filter.clear(); S.shown = PAGE; render(); };
+  document.addEventListener('keydown', (e) => {
+    if (S.view !== 'swipe' || $('swipe').hidden) return;
+    if (document.querySelector('dialog[open]') || /INPUT|TEXTAREA|SELECT/.test(e.target.tagName)) return;
+    if (e.key === 'ArrowLeft') { e.preventDefault(); decide('unfollow'); }
+    else if (e.key === 'ArrowRight') { e.preventDefault(); decide('keep'); }
+    else if (e.key === 'ArrowDown') { e.preventDefault(); decide('later'); }
+    else if (e.key === 'z' || e.key === 'Z' || (e.key === 'Backspace')) { e.preventDefault(); undo(); }
+  });
 }
 
 /** Select accounts named in pasted text: @handles, x.com links, or a CSV with a handle column. */
